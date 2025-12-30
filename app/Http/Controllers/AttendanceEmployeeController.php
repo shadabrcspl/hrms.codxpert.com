@@ -243,6 +243,17 @@ class AttendanceEmployeeController extends Controller
                                         return null;
                                     }
 
+                                    // Break calculation
+                                    $firstClockIn = $shiftGroup->min('clock_in');
+                                    $lastClockOut = $shiftGroup->max('clock_out');
+
+                                    // If last record is not clocked out yet, we can't fully calculate break for that session?
+                                    // But requirements say "Last clock-out time". If they are currently working, last clock out might be from previous session or effectively 'now' if we strictly followed prompt?
+                                    // Usually for display, we show what we have.
+
+                                    $totalDurationSeconds = $firstClockIn->diffInSeconds($lastClockOut);
+                                    $breakSeconds = max(0, $totalDurationSeconds - $totalSeconds);
+
                                     return (object) [
                                         'id'                  => $shiftGroup[0]->id,
                                         'employee_id'         => $employeeId,
@@ -250,9 +261,11 @@ class AttendanceEmployeeController extends Controller
                                         'employee'            => $shiftGroup->first()->employee,
                                         'date'                => $shiftDate,
                                         'shift_type'          => $shiftType,
-                                        'clock_in'            => $shiftGroup->min('clock_in')->format('Y-m-d H:i:s'),
-                                        'clock_out'           => $shiftGroup->max('clock_out')->format('Y-m-d H:i:s'),
+                                        'clock_in'            => $firstClockIn->format('Y-m-d H:i:s'),
+                                        'clock_out'           => $lastClockOut->format('Y-m-d H:i:s'),
                                         'total_working_hours' => gmdate('H:i:s', $totalSeconds),
+                                        'total_break_hours'   => gmdate('H:i:s', $breakSeconds),
+                                        'session_count'       => $shiftGroup->count(),
                                         'created_by'          => $shiftGroup[0]->created_by,
                                         'created_at'          => $shiftGroup[0]->created_at,
                                         'updated_at'          => $shiftGroup[0]->updated_at,
@@ -789,9 +802,12 @@ class AttendanceEmployeeController extends Controller
             $late = sprintf('%02d:%02d:%02d', $hours, $mins, $secs);
         }
 
-        $checkDb = AttendanceEmployee::where('employee_id', '=', $employeeId)->where('date', '=', $date)->first();
+        $checkDb = AttendanceEmployee::where('employee_id', '=', $employeeId)
+            ->where('date', '=', $date)
+            ->orderBy('id', 'desc')
+            ->first();
 
-        if (empty($checkDb)) {
+        if (empty($checkDb) || $checkDb->clock_out != '00:00:00') {
             $employeeAttendance                = new AttendanceEmployee();
             $employeeAttendance->employee_id   = $employeeId;
             $employeeAttendance->date          = $date;
@@ -808,7 +824,7 @@ class AttendanceEmployeeController extends Controller
 
             return redirect()->back()->with('success', __('Employee Successfully Clock In.'));
         }
-        return redirect()->back()->with('error', __('Employee already clocked in today.'));
+        return redirect()->back()->with('error', __('Employee already clocked in. Please clock out first.'));
     }
 
     public function bulkAttendance(Request $request)
