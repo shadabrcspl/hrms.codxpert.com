@@ -557,10 +557,14 @@ class AttendanceEmployeeController extends Controller
         [$start, $end] = Utility::getShiftWindow(Auth::user()->employee->shift_type, now()->toDateString());
 
         // dd([$start, $end]);
-        $attendanceEmployee = AttendanceEmployee::orderBy('id', 'desc')
-            ->where('employee_id', $employeeId)
-            ->whereBetween('clock_in', [$start, $end])
-            ->first();
+        $attendanceEmployee = AttendanceEmployee::find($id);
+
+        if(empty($attendanceEmployee)){
+            $attendanceEmployee = AttendanceEmployee::orderBy('id', 'desc')
+                ->where('employee_id', $employeeId)
+                ->whereBetween('clock_in', [$start, $end])
+                ->first();
+        }
 
         // $startTime = Utility::getValByName('company_start_time');
         $startTime = Auth::user()->employee->shift_type === 'day' ? '00:00' : '12:00';
@@ -568,6 +572,10 @@ class AttendanceEmployeeController extends Controller
         $endTime   = Auth::user()->employee->shift_type === 'day' ? '23:59' : '11:59';
 
         if (Auth::user()->type == 'employee') {
+
+            if(empty($attendanceEmployee) || $attendanceEmployee->employee_id != $employeeId){
+                return redirect()->back()->with('error', __('Employee not available'));
+            }
 
             /* $date = date("Y-m-d");
             $time = date("H:i:s");
@@ -781,7 +789,7 @@ class AttendanceEmployeeController extends Controller
             $late = sprintf('%02d:%02d:%02d', $hours, $mins, $secs);
         }
 
-        $checkDb = AttendanceEmployee::where('employee_id', '=', \Auth::user()->id)->get()->toArray();
+        $checkDb = AttendanceEmployee::where('employee_id', '=', $employeeId)->where('date', '=', $date)->first();
 
         if (empty($checkDb)) {
             $employeeAttendance                = new AttendanceEmployee();
@@ -800,24 +808,7 @@ class AttendanceEmployeeController extends Controller
 
             return redirect()->back()->with('success', __('Employee Successfully Clock In.'));
         }
-        foreach ($checkDb as $check) {
-
-            $employeeAttendance                = new AttendanceEmployee();
-            $employeeAttendance->employee_id   = $employeeId;
-            $employeeAttendance->date          = $date;
-            $employeeAttendance->status        = 'Present';
-            $employeeAttendance->clock_in      = $time;
-            $employeeAttendance->clock_out     = '00:00:00';
-            $employeeAttendance->late          = $late;
-            $employeeAttendance->early_leaving = '00:00:00';
-            $employeeAttendance->overtime      = '00:00:00';
-            $employeeAttendance->total_rest    = '00:00:00';
-            $employeeAttendance->created_by    = \Auth::user()->id;
-
-            $employeeAttendance->save();
-
-            return redirect()->back()->with('success', __('Employee Successfully Clock In.'));
-        }
+        return redirect()->back()->with('error', __('Employee already clocked in today.'));
     }
 
     public function bulkAttendance(Request $request)
